@@ -1,0 +1,374 @@
+﻿<html>
+
+<head>
+	<title></title>
+	<script language="javascript" type="text/javascript">
+		function Rect()
+		{
+			var self = this;
+			this.cx = 0;
+			this.cy = 0;
+			this.x1 = 0;
+			this.y1 = 0;
+			this.x2 = 0;
+			this.y2 = 0;
+			this.element = null;
+			this.SetRect = SetRect;
+			this.SetRectElement = SetRectElement;
+			this.Move = Move;
+			this.IsInsideRect = IsInsideRect;
+			this.IsWithinRect = IsWithinRect;
+			this.Intersect = Intersect;
+			this.Stick = Stick;
+
+			function SetRect(cx, cy, width, height)
+			{
+				var hw = width / 2;
+				var hh = height / 2;
+				self.cx = cx;
+				self.cy = cy;
+				self.x1 = cx - hw;
+				self.y1 = cy - hh;
+				self.x2 = cx + hw;
+				self.y2 = cy + hh;
+			}
+
+			function SetRectElement(cx, cy, element)
+			{
+				var width = parseInt(element.style.width);
+				var height = parseInt(element.style.height);
+
+				self.SetRect(cx, cy, width, height);
+				self.element = element;
+
+				self.element.style.left = self.x1;
+				self.element.style.top = self.y1;
+			}
+
+			function Move(x, y)
+			{
+				self.cx += x;
+				self.cy += y;
+				self.x1 += x;
+				self.y1 += y;
+				self.x2 += x;
+				self.y2 += y;
+
+				if (self.element != null)
+				{
+					self.element.style.left = self.x1;
+					self.element.style.top = self.y1;
+				}
+			}
+
+			function IsInsideRect(rect)
+			{
+				return self.x2 >= rect.x1 && self.y2 >= rect.y1 && self.x1 <= rect.x2 && self.y1 <= rect.y2;
+			}
+
+			function IsWithinRect(rect)
+			{
+				return self.x1 >= rect.x1 && self.y1 >= rect.y1 && self.x2 <= rect.x2 && self.y2 <= rect.y2;
+			}
+
+			function Intersect(rect)
+			{
+				var x = (self.cx < rect.cx ? self.x2 < rect.x1 : rect.x2 < self.x1);
+				var y = (self.cy < rect.cy ? self.y2 < rect.y1 : rect.y2 < self.y1);
+				return !x & !y;
+			}
+
+			function Stick(rect)
+			{
+				var dx1 = rect.x1 - self.x1;
+				var dy1 = rect.y1 - self.y1;
+				var dx2 = rect.x2 - self.x2;
+				var dy2 = rect.y2 - self.y2;
+				var mx = (self.x1 >= rect.x1 && self.x2 <= rect.x2) ? 0 : Math.abs(dx2) < Math.abs(dx1) ? dx2 : dx1;
+				var my = (self.y1 >= rect.y1 && self.y2 <= rect.y2) ? 0 : Math.abs(dy2) < Math.abs(dy1) ? dy2 : dy1;
+				self.Move(mx, my);
+			}
+		}
+
+		function VeloRect()
+		{
+			var self = this;
+			this.rect = new Rect();
+			this.SetRect = this.rect.SetRect;
+			this.SetRectElement = this.rect.SetRectElement;
+
+			this.Thrust = 0.25;
+			this.VelocityX = 0.0;
+			this.VelocityY = 0.0;
+			this.Push = Push;
+			this.Stop = Stop;
+			this.Tick = Tick;
+			this.Stick = Stick;
+
+			function Push(dx, dy)
+			{
+				self.VelocityX += self.Thrust * dx;
+				self.VelocityY += self.Thrust * dy;
+			}
+
+			function Stop()
+			{
+				self.VelocityX = 0;
+				self.VelocityY = 0;
+			}
+
+			function Tick()
+			{
+				self.rect.Move(self.VelocityX, self.VelocityY);
+			}
+
+			function Stick(rect)
+			{
+				self.rect.Stick(rect);
+				self.Stop();
+			}
+		}
+
+		var WorldRect;
+		var Ship;
+		var VecBullet;
+		var VecRock;
+		var IntervalID;
+		var RockSpawnCtrl;
+		var Energy;
+		var ShotEnergyCost;
+		var RockEnergy;
+		var Menu;
+
+		function InitVars()
+		{
+			WorldRect = new Rect();
+			Ship = new VeloRect();
+			VecBullet = [];
+			VecRock = [];
+			IntervalID = null;
+			RockSpawnCtrl = 0;
+			Energy = 100;
+			ShotEnergyCost = 10;
+			RockEnergy = 20;
+			Menu = true;
+		}
+
+		function InitStart()
+		{
+			var width = parseInt(divScreen.style.width);
+			var height = parseInt(divScreen.style.height);
+			InitVars();
+			WorldRect.SetRect(width / 2, height / 2, width, height);
+			Ship.SetRectElement(width / 4, height / 2, divShip);
+			ShowMenu(false);
+			IntervalID = setInterval('Tick();', 20); //50 per second
+		}
+
+		function ShowMenu(Show)
+		{
+			divScore.style.display = Show ? 'none' : 'block';
+			divShip.style.display = Show ? 'none' : 'block';
+			divMenu.style.display = Show ? 'block' : 'none';
+			Menu = Show;
+		}
+
+		function Reset()
+		{
+			if (IntervalID != null)
+				clearInterval(IntervalID);
+
+			var node;
+			for (var i = divScreen.childNodes.length - 1; i >= 0; --i)
+			{
+				node = divScreen.childNodes.item(i);
+				if (node.attributes != null)
+					if (node.attributes.getNamedItem('locked') == null)
+						divScreen.removeChild(node);
+			}
+
+			ShowMenu(true);
+		}
+
+		function Random(min, max)
+		{
+			return Math.floor(Math.random() * (++max) - min) + min;
+		}
+
+		function KeyGetDX(KeyCode)
+		{
+			if (KeyCode == 37)
+				return -1;
+			if (KeyCode == 39)
+				return 1;
+			return 0;
+		}
+
+		function KeyGetDY(KeyCode)
+		{
+			if (KeyCode == 38)
+				return -1;
+			if (KeyCode == 40)
+				return 1;
+			return 0;
+		}
+
+		function KeySpace(KeyCode)
+		{
+			return KeyCode == 32;
+		}
+
+		function KeyCtrlLeft(KeyCode)
+		{
+			return KeyCode == 17;
+		}
+
+		function KeyCtrlEnter(KeyCode)
+		{
+			return KeyCode == 13;
+		}
+
+		function KeyDown()
+		{
+			var KeyCode = window.event.keyCode;
+			var dx = KeyGetDX(KeyCode);
+			var dy = KeyGetDY(KeyCode);
+			var Stop = KeySpace(KeyCode);
+			var Shot = KeyCtrlLeft(KeyCode);
+			var Enter = KeyCtrlEnter(KeyCode);
+
+			if (Menu)
+			{
+				if(Enter)
+					InitStart();
+				return;
+			}
+
+			if (Stop)
+				Ship.Stop();
+			else
+				Ship.Push(dx, dy);
+
+			if (Shot && Energy >= ShotEnergyCost)
+			{
+				Energy -= ShotEnergyCost;
+				AddElement('divBulletTemplate', Ship.rect.cx, Ship.rect.cy, 4, 1, 0, VecBullet);
+			}
+		}
+
+		function Tick()
+		{
+			var Element;
+
+			if (++RockSpawnCtrl >= 25)
+			{
+				RockSpawnCtrl = 0;
+				AddElement('divRockTemplate', 331, Random(12, 228), 0.5, -1, 0, VecRock);
+			}
+
+			Ship.Tick();
+			if (!Ship.rect.IsWithinRect(WorldRect))
+				Ship.Stick(WorldRect);
+
+			TickVec(VecBullet);
+			TickVec(VecRock);
+
+			if (CheckBulletCollision())
+				Energy += RockEnergy;
+
+			if (CheckShipCollision())
+				Reset();
+
+			divScore.innerHTML = "Energy: " + Energy;
+		}
+
+		function TickVec(Vec)
+		{
+			var ndx, Element;
+			for (ndx = 0; ndx < Vec.length; ++ndx)
+			{
+				Element = Vec[ndx];
+				Element.veloRect.Tick();
+				if (!Element.veloRect.rect.IsInsideRect(WorldRect))
+					RemoveElement(Element, Vec);
+			}
+		}
+
+		function AddElement(TemplateID, cx, cy, Thrust, dx, dy, Vec)
+		{
+			var Template = document.getElementById(TemplateID);
+			var Element = Template.cloneNode();
+			var vr = Element.veloRect = new VeloRect();
+			vr.SetRectElement(cx, cy, Element);
+			vr.Thrust = Thrust;
+			vr.Push(dx, dy);
+			vr.rect.Move(0, 0);
+			Element.style.display = 'block';
+			Vec.push(Element);
+			divScreen.appendChild(Element);
+			return Element;
+		}
+
+		function RemoveElement(Element, Vec)
+		{
+			divScreen.removeChild(Element);
+
+			for (var ndx = 0; ndx < Vec.length; ++ndx)
+			{
+				if (Vec[ndx] == Element)
+				{
+					Vec.splice(ndx, 1);
+					break;
+				}
+			}
+		}
+
+		function CheckShipCollision()
+		{
+			for (var i = 0; i < VecRock.length; i++)
+				if (Ship.rect.Intersect(VecRock[i].veloRect.rect))
+					return true;
+			return false;
+		}
+
+		function CheckBulletCollision()
+		{
+			for (var j = 0; j < VecBullet.length; j++)
+			{
+				for (var i = 0; i < VecRock.length; i++)
+				{
+					if (VecBullet[j].veloRect.rect.Intersect(VecRock[i].veloRect.rect))
+					{
+						RemoveElement(VecBullet[j], VecBullet);
+						RemoveElement(VecRock[i], VecRock);
+						return true;
+					}
+				}
+			}
+			return false;
+		}
+	</script>
+</head>
+
+<body onload="javascript:ShowMenu(true);">
+	<div id="divScreen" onkeydown="javascript:KeyDown();" style="position:relative;overflow:hidden;width:320;height:240;background-color:Gray;">
+		<div locked="true" id="divScore" style="position:absolute;left:4;top:4;"></div>
+		<div locked="true" id="divShip" style="position:absolute;overflow:hidden;width:32;height:16;background-image:url('res/ship.png');background-repeat:no-repeat;left:0;top:0;"></div>
+		<!--<div locked="true" id="divShip" style="position:absolute;overflow:hidden;width:16;height:16;background-color:White;left:0;top:0;"></div>-->
+		<div locked="true" id="divMenu">
+			<p style="font-weight:bold">Javascript Test</p>
+			<ul>
+				<li>Fleches: Mouvement</li>
+				<li>Espace: Arret</li>
+				<li>Ctrl: Tir</li>
+			</ul>
+			Appuyez sur Entrée pour commencer
+		</div>
+	</div>
+	<div id="divBulletTemplate" style="position:absolute;overflow:hidden;width:6;height:4;background-image:url('res/mail.png');background-repeat:no-repeat;left:0;top:0;display:none;"></div>
+	<div id="divRockTemplate" style="position:absolute;overflow:hidden;width:24;height:24;background-image:url('res/rock.png');background-repeat:no-repeat;left:0;top:0;display:none;"></div>
+	<!--<div id="divBulletTemplate" style="position:absolute;overflow:hidden;width:4;height:4;background-color:Yellow;left:0;top:0;display:none;"></div>-->
+	<!--<div id="divRockTemplate" style="position:absolute;overflow:hidden;width:24;height:24;background-color:White;left:0;top:0;display:none;"></div>-->
+</body>
+
+</html>
